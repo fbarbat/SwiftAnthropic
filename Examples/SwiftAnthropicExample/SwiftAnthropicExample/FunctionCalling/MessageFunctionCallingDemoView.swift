@@ -6,6 +6,10 @@
 //
 
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
+
 import PhotosUI
 import SwiftAnthropic
 import SwiftUI

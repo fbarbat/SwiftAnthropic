@@ -6,6 +6,9 @@
 //
 
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// [Create a Text Completion](https://docs.anthropic.com/claude/reference/complete_post)
 /// POST: https://api.anthropic.com/v1/complete
