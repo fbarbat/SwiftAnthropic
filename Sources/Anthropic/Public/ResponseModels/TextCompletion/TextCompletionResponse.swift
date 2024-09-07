@@ -6,6 +6,9 @@
 //
 
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// [Completion Response](https://docs.anthropic.com/claude/reference/complete_post)
 public struct TextCompletionResponse: Decodable {

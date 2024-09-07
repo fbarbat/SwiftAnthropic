@@ -6,6 +6,9 @@
 //
 
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// [Text Completion Response](https://docs.anthropic.com/claude/reference/streaming)
 public struct TextCompletionStreamResponse: Decodable {

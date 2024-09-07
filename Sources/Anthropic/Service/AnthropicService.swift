@@ -6,6 +6,9 @@
 //
 
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 // MARK: Error
 
@@ -50,6 +53,8 @@ public protocol AnthropicService {
    /// This decoder is used to parse the JSON responses returned by the API
    /// into model objects that conform to the `Decodable` protocol.
    var decoder: JSONDecoder { get }
+    
+   var urlSessionDelegate: URLSessionDelegate { get }
    
    // MARK: Message
    
@@ -181,7 +186,7 @@ extension AnthropicService {
    {
       printCurlCommand(request)
       
-      let (data, response) = try await session.bytes(for: request)
+       let (data, response) = try await session.bytes(for: request, delegate: urlSessionDelegate)
       guard let httpResponse = response as? HTTPURLResponse else {
          throw APIError.requestFailed(description: "invalid response unable to get a valid HTTPURLResponse")
       }
@@ -351,4 +356,107 @@ extension AnthropicService {
          return "INVALID TOKEN LENGTH"
       }
    }
+}
+
+final class StreamDelegate: NSObject, URLSessionDataDelegate {
+    private var dataContinuation: AsyncThrowingStream<UInt8, Error>.Continuation?
+    private var responseContinuation: CheckedContinuation<URLResponse, Error>?
+    
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse, completionHandler: @escaping @Sendable (URLSession.ResponseDisposition) -> Void) {
+        responseContinuation?.resume(returning: response)
+        responseContinuation = nil
+        completionHandler(.allow)
+    }
+    
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        for byte in data {
+            dataContinuation?.yield(byte)
+        }
+    }
+    
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        if let error = error {
+            dataContinuation?.finish(throwing: error)
+        } else {
+            dataContinuation?.finish()
+        }
+        dataContinuation = nil
+    }
+    
+    func startRequest(with url: URLRequest, session: URLSession) async throws -> (AsyncThrowingStream<UInt8, Error>, URLResponse) {
+        let stream = AsyncThrowingStream<UInt8, Error> { continuation in
+            self.dataContinuation = continuation
+        }
+        
+        let response = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<URLResponse, Error>) in
+            self.responseContinuation = continuation
+            let task = session.dataTask(with: url)
+            task.resume()
+        }
+        
+        return (stream, response)
+    }
+}
+
+extension URLSession {
+    func bytes(for request: URLRequest, delegate: URLSessionDelegate) async throws -> (AsyncThrowingStream<UInt8, Error>, URLResponse) {
+        // TODO: This is bad, clean this up
+        guard let delegate = delegate as? StreamDelegate else {
+            fatalError()
+        }
+        
+        return try await delegate.startRequest(with: request, session: self)
+    }
+}
+
+public struct AsyncLineSequence<Base: AsyncSequence>: AsyncSequence where Base.Element == UInt8 {
+    public typealias Element = String
+    private let base: Base
+
+    public init(_ base: Base) {
+        self.base = base
+    }
+
+    public func makeAsyncIterator() -> AsyncIterator {
+        return AsyncIterator(base.makeAsyncIterator())
+    }
+
+    public struct AsyncIterator: AsyncIteratorProtocol {
+        private var baseIterator: Base.AsyncIterator
+        private var buffer : Data = Data()
+        private var isEOF = false
+
+        init(_ baseIterator: Base.AsyncIterator) {
+            self.baseIterator = baseIterator
+        }
+
+        public mutating func next() async throws -> String? {
+            while !isEOF {
+                if let newlineRange = buffer.firstIndex(of: 0x0A) {
+                    let lineData = buffer.subdata(in: buffer.startIndex..<buffer.startIndex.advanced(by: newlineRange))
+                    buffer.removeSubrange(buffer.startIndex...buffer.startIndex.advanced(by: newlineRange))
+                    let line = String(data: lineData, encoding: .utf8)
+                    return line
+                }
+
+                if let byte = try await baseIterator.next() {
+                    buffer.append(byte)
+                } else {
+                    isEOF = true
+                    if !buffer.isEmpty {
+                        let lineData = buffer
+                        buffer.removeAll()
+                        return String(data: lineData, encoding: .utf8)
+                    }
+                }
+            }
+            return nil
+        }
+    }
+}
+
+extension AsyncSequence where Self.Element == UInt8 {
+    public var lines: AsyncLineSequence<Self> {
+        return AsyncLineSequence(self)
+    }
 }

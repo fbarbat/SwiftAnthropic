@@ -6,9 +6,11 @@
 //
 
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 struct DefaultAnthropicService: AnthropicService {
-
    let session: URLSession
    let decoder: JSONDecoder
    let apiKey: String
@@ -16,6 +18,8 @@ struct DefaultAnthropicService: AnthropicService {
    let basePath: String
    /// Set this flag to TRUE if you need to print request events in DEBUG builds.
    private let debugEnabled: Bool
+   
+   let urlSessionDelegate: URLSessionDelegate
    
    private static let betaHeader = "max-tokens-3-5-sonnet-2024-07-15"
 
@@ -26,7 +30,8 @@ struct DefaultAnthropicService: AnthropicService {
       configuration: URLSessionConfiguration = .default,
       debugEnabled: Bool)
    {
-      self.session = URLSession(configuration: configuration)
+      self.urlSessionDelegate = StreamDelegate()
+      self.session = URLSession(configuration: configuration, delegate: urlSessionDelegate, delegateQueue: nil)
       let decoderWithSnakeCaseStrategy = JSONDecoder()
       decoderWithSnakeCaseStrategy.keyDecodingStrategy = .convertFromSnakeCase
       self.decoder = decoderWithSnakeCaseStrategy

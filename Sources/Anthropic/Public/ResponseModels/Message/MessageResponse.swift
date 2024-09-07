@@ -6,6 +6,9 @@
 //
 
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// [Message Response](https://docs.anthropic.com/claude/reference/messages_post)
 public struct MessageResponse: Decodable {
